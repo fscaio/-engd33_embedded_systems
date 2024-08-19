@@ -1,5 +1,5 @@
 
-#deine FILE_NAME        "/PTRSE/DataLogger.txt"
+#define FILE_NAME        "/PTRSE/DataLogger.txt"
 
 
 
@@ -20,7 +20,10 @@ QueueHandle_t xQueueCommSBC;
 
 
 void setup() {
-
+  
+  xQueueDatalog = xQueueCreate(10, sizeof(DatalogEntry_t)); 
+  xQueueSPI = xQueueCreate(10, sizeof(SPIPacket_t));
+  xQueueCommSBC = xQueueCreate(10, sizeof(uint8_t));
   
 
   xTaskCreatePinnedToCore(&tarefaSPI, "spiControl", 4096, NULL, 0, &taskSPI, tskNO_AFFINITY);
