@@ -7,11 +7,12 @@ M5EPD_Canvas taskInfo(&M5.EPD);
 
 #define FILE_NAME               "/DataLogger.txt"
 
-#define MEMORYSTACKRTC          3000
-#define MEMORYSTACKSPI          3000
-#define MEMORYSTACKDATALOGGER   3000
-#define MEMORYSTACKSimuEncoder  4096
-#define MEMORYSTACKSimuAccGyro  4096
+#define MEMORYSTACKRTC          1800
+#define MEMORYSTACKSPI          2800
+#define MEMORYSTACKDATALOGGER   2200
+#define MEMORYSTACKSimuEncoder  1700
+#define MEMORYSTACKSimuAccGyro  1700
+#define MEMORYSTACKIHM          1500
 
 
 typedef struct {
@@ -39,6 +40,7 @@ struct IHMDADOS{
   UBaseType_t memoria;
   BaseType_t core;
 };
+
 
 bool SDcard = false;
 
@@ -94,9 +96,11 @@ void setup() {
   M5.TP.SetRotation(0);
    
   M5.EPD.Clear(true);
-  realTime.createCanvas(480, 540);
-  taskInfo.createCanvas(480, 540);
+  delay(100);
+  //realTime.createCanvas(960, 540);
+  taskInfo.createCanvas(960, 540);
   M5.RTC.begin();
+  delay(100);
 
   if (!SD.begin()) {  // Inicialização do SD card.
     Serial.println("Falha no cartão, ou cartão não presente");  
@@ -104,6 +108,7 @@ void setup() {
     Serial.println("Cartão de Memória encontrado");
     SDcard = true;
   }
+  delay(100);
 
   randomSeed(55);
 
@@ -128,12 +133,12 @@ void setup() {
   xTaskCreatePinnedToCore(&tarefaRTC, "RTCControl", MEMORYSTACKRTC, NULL, 5, &taskRTC, tskNO_AFFINITY);   
   xTaskCreatePinnedToCore(&tarefaDataLogger, "DataLoggerControl", MEMORYSTACKDATALOGGER, NULL, 4, &taskDataLogger, tskNO_AFFINITY);
   xTaskCreatePinnedToCore(&tarefaSPI, "spiControl", MEMORYSTACKSPI, NULL, 3, &taskSPI, tskNO_AFFINITY);
-  xTaskCreatePinnedToCore(&tarefaIHM, "IHM", 4096, NULL, 2, &taskIHM, tskNO_AFFINITY);
+  xTaskCreatePinnedToCore(&tarefaIHM, "IHM", MEMORYSTACKIHM, NULL, 2, &taskIHM, tskNO_AFFINITY);
   xTaskCreatePinnedToCore(&tarefaDadosSimuladorEncoder, "DadosSimuladorEncoder", MEMORYSTACKSimuEncoder, NULL, 1, &taskSimuladorEncoder, tskNO_AFFINITY);
   xTaskCreatePinnedToCore(&tarefaDadosSimuladorAccGyro, "DadosSimuladorAccGyro", MEMORYSTACKSimuAccGyro, NULL, 1, &taskSimuladorAccGyro, tskNO_AFFINITY);
   xTaskCreatePinnedToCore(&tarefaSBC, "SBCControl", 4096, NULL, 0, &taskSBC, tskNO_AFFINITY);
 
-  vTaskStartScheduler();
+  //vTaskStartScheduler();
 }
 
 void loop() {
@@ -153,14 +158,6 @@ void tarefaSPI(void * pvParameters){// SUSPEND 3 - IHM
   DatalogEntryAccGyro_t SPIDataAccGyro;
   IHMDADOS RTCtoIHM;
   
-  // bool SDcard = false;
-
-  // if (!SD.begin()) {  // Inicialização do SD card.
-  //     Serial.println("Falha no cartão, ou cartão não presente");  
-  // }else{
-  //   Serial.println("Cartão de Memória encontrado");
-  //   SDcard = true;
-  // }
 
   if(SDcard){
     if (SD.exists(FILE_NAME)) { 
@@ -201,6 +198,7 @@ void tarefaSPI(void * pvParameters){// SUSPEND 3 - IHM
           myFile.println(SPIDataEncoder.horaDado);
 
           myFile.close();
+          Serial.println("\n Dado gravado com suceso");
         }else {
             Serial.print("Erro ao abrir o arquivo ");
             Serial.println(FILE_NAME);
@@ -375,7 +373,12 @@ void tarefaIHM(void * pvParameters){ //SUSPEND 4 - SIMULADOR
   Serial.print("tarefa IHM utilizando o core -> ");
   Serial.println(xPortGetCoreID());
 
-  IHMDADOS IHMDADOSRECEBIDOS;  
+  IHMDADOS IHMDADOSRECEBIDOS;
+  UBaseType_t uxHighWaterMark;
+  tp_finger_t dadosTouch;
+  int8_t pagina = 0;
+
+
 
   if (xSemaphoreTake(xMutex_var, portMAX_DELAY) == pdTRUE) {
   
@@ -395,6 +398,25 @@ void tarefaIHM(void * pvParameters){ //SUSPEND 4 - SIMULADOR
       M5.update();
       xSemaphoreGive(xMutex_var);
     }
+
+    // if(M5.TP.available()){
+    //   if(!M5.TP.isFingerUp()){
+    //     //M5.TP.update();
+    //     dadosTouch = M5.TP.readFinger(1);
+
+    //     if(dadosTouch.x >= 480){
+    //       pagina++;
+    //       if(pagina > 1);
+    //         pagina = 1;
+    //     }else if (dadosTouch.x < 480) {
+    //       pagina--;
+    //       if(pagina < 0);
+    //         pagina = 0;
+    //     }
+    //   }
+    // }
+    // taskInfo.drawNumber(pagina, 480,140);
+    // taskInfo.pushCanvas(0, 0, UPDATE_MODE_DU4);
 
     if(xQueueReceive(xQueueIHMDADOS, &IHMDADOSRECEBIDOS, portMAX_DELAY) == pdPASS){
       switch(IHMDADOSRECEBIDOS.tarefa){
@@ -424,19 +446,38 @@ void tarefaIHM(void * pvParameters){ //SUSPEND 4 - SIMULADOR
           taskInfo.drawNumber(IHMDADOSRECEBIDOS.core, 200,420);
           taskInfo.pushCanvas(0, 0, UPDATE_MODE_DU4);
           break;
+
         case 4:
+          taskInfo.drawString("Tarefa SIMUACCGYRO", 510,100);
+          taskInfo.drawString("Memory FREE", 520,140);
+          taskInfo.drawNumber(IHMDADOSRECEBIDOS.memoria, 750, 140);
+          taskInfo.drawString("Core ->", 520,180);
+          taskInfo.drawNumber(IHMDADOSRECEBIDOS.core, 680,180);
+          taskInfo.pushCanvas(0, 0, UPDATE_MODE_DU4);
           break;
+
         case 5:
+          taskInfo.drawString("Tarefa SIMUENCODER", 510,220);
+          taskInfo.drawString("Memory FREE", 520,260);
+          taskInfo.drawNumber(IHMDADOSRECEBIDOS.memoria, 750, 260);
+          taskInfo.drawString("Core ->", 520,300);
+          taskInfo.drawNumber(IHMDADOSRECEBIDOS.core, 680,300);
+          taskInfo.pushCanvas(0, 0, UPDATE_MODE_DU4);
           break;
       }
-
+      taskInfo.drawString("Tarefa IHM", 510,340);
+      taskInfo.drawString("Memory FREE", 520,380);
+      taskInfo.drawNumber(uxHighWaterMark, 750, 380);
+      taskInfo.drawString("Core ->", 520,420);
+      taskInfo.drawNumber(xPortGetCoreID(), 680,420);
+      taskInfo.pushCanvas(0, 0, UPDATE_MODE_DU4);
     }
     
     // realTime.print("ola");
     // realTime.drawNumber(xPortGetCoreID(), 20, 20);
     // realTime.pushCanvas(0, 0, UPDATE_MODE_DU4);
 
-    UBaseType_t uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+    uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
     Serial.print("\n quantidade de memoria em palavra restante do stack - TAREFA IHM -> ");
     Serial.println(uxHighWaterMark);
 
@@ -452,6 +493,7 @@ void tarefaDadosSimuladorEncoder(void * pvParameters){//SUSPEND 5 -
   Serial.println(xPortGetCoreID());
 
   uint32_t velEncoder = 0;
+  IHMDADOS RTCtoIHM;
 
   while(1){
 
@@ -460,6 +502,13 @@ void tarefaDadosSimuladorEncoder(void * pvParameters){//SUSPEND 5 -
       velEncoder = 0;
 
     xQueueSend(xQueueSimuEncoder, &velEncoder, pdMS_TO_TICKS(100));
+
+    UBaseType_t uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+    Serial.printf("\nTAREFA SIMUACCGYR OF %d - FREE MEMORY -> %u ", MEMORYSTACKSimuEncoder, uxHighWaterMark);
+    RTCtoIHM.tarefa = 5;
+    RTCtoIHM.memoria = uxHighWaterMark;
+    RTCtoIHM.core = xPortGetCoreID();
+    xQueueSend(xQueueIHMDADOS, &RTCtoIHM, pdMS_TO_TICKS(10));
 
     vTaskDelay(1000/portTICK_PERIOD_MS);
   }
@@ -473,6 +522,7 @@ void tarefaDadosSimuladorAccGyro(void * pvParameters){//SUSPEND 5 -
   Serial.println(xPortGetCoreID());
 
   AccGyro AcelerometroGyroscopio;
+  IHMDADOS RTCtoIHM;
 
   while(1){
 
@@ -485,6 +535,14 @@ void tarefaDadosSimuladorAccGyro(void * pvParameters){//SUSPEND 5 -
 
     xQueueSend(xQueueSimuAccGyro, &AcelerometroGyroscopio, pdMS_TO_TICKS(100));
 
+    UBaseType_t uxHighWaterMark = uxTaskGetStackHighWaterMark(NULL);
+    Serial.printf("\nTAREFA SIMUACCGYR OF %d - FREE MEMORY -> %u ", MEMORYSTACKSimuAccGyro, uxHighWaterMark);
+    RTCtoIHM.tarefa = 4;
+    RTCtoIHM.memoria = uxHighWaterMark;
+    RTCtoIHM.core = xPortGetCoreID();
+    xQueueSend(xQueueIHMDADOS, &RTCtoIHM, pdMS_TO_TICKS(10));
+
     vTaskDelay(1000/portTICK_PERIOD_MS);
   }
 }
+
